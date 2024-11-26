@@ -96,12 +96,8 @@ class RegWindow(QMainWindow):
                 result1 = cur.execute(
                     """INSERT INTO users(UserLogin,UserPassword,UserName,WeekDays) VALUES(?,?,?,?)""",
                     (log, pas, name, week_days))
-                start_date = datetime.today() - timedelta(days=datetime.today().weekday() + 7)  # Неделя до текущей
-                days = [
-                    (start_date + timedelta(days=i), log, '')  # log - зашифрованный логин пользователя
-                    for i in range(21)
-                ]
-                cur.executemany("""INSERT INTO days (DayDate, UserLogin, Events) VALUES (?, ?, ?)""", days)
+                days = [(i, log, '') for i in range(1, 22)]
+                cur.executemany("INSERT INTO days (DayNumber, UserLogin, Events) VALUES (?, ?, ?)", days)
                 con.commit()
                 self.Mm = MainMenu()
                 self.Mm.show()
@@ -141,7 +137,7 @@ class WeeklyPlannerWindow(QMainWindow):
             text_edit.textChanged.connect(lambda idx=day_index: self.save_event_for_day(idx))
 
         # Инициализация переменных для управления неделями
-        self.current_week = 0  # 0 - текущая неделя, -1 - предыдущая, +1 - следующая
+        self.current_week = 2  # 2 - текущая неделя, 1 - предыдущая, 3 - следующая
         self.total_weeks = 3  # Общее количество доступных недель
 
         # Заполняем начальные данные
@@ -177,46 +173,77 @@ class WeeklyPlannerWindow(QMainWindow):
         self.update_display()
 
     def fill_dates(self):
-        self.shift_weeks()
-        # Определяем понедельник текущей недели
+        week_start = (self.current_week - 1) * 7 + 1  # Сдвигаем недели на 1 для текущей
+        day_numbers = list(range(week_start, week_start + 7))
+
+        # Проверка допустимости номеров дней
+        day_numbers = [num for num in day_numbers if 1 <= num <= 21]
+
+        con = sqlite3.connect('UsersInfo.db')
+        cur = con.cursor()
+
+        if len(day_numbers) == 7:  # Только если у нас есть полный набор дней
+            days = cur.execute(
+                "SELECT DayNumber, Events FROM days WHERE UserLogin = ? AND DayNumber IN (?, ?, ?, ?, ?, ?, ?)",
+                (self.UserLogin, *day_numbers)
+            ).fetchall()
+        else:
+            days = []  # Если дни некорректны, возвращаем пустой список
+            print(f"Недопустимые номера дней: {day_numbers}")
+
+        con.close()
+
+        print(f"Загружены данные для дней: {days}")
+
+        # Устанавливаем задачи в соответствующие QTextEdit
+        for day_index, text_edit in enumerate(self.day_event_inputs):
+            if day_index < len(day_numbers):  # Проверяем, что индекс в пределах допустимого
+                day_number = day_numbers[day_index]
+                event_text = next((day[1] for day in days if day[0] == day_number), '')
+                text_edit.setPlainText(event_text)
+            else:
+                text_edit.setPlainText('')  # Очищаем поле, если номер дня недоступен
+
+        # Обновляем отображение дат
+        self.update_week_dates(week_start)
+        self.update_buttons()
+
+    def update_week_dates(self, week_start):
+        """Обновляет отображение дат в интерфейсе."""
         today = datetime.today()
         weekday_index = today.weekday()
         start_of_week = today - timedelta(days=weekday_index)
 
-        # Вычисляем сдвиг недели
-        start_of_week += timedelta(weeks=self.current_week)
+        # Учитываем текущую неделю
+        start_of_week += timedelta(weeks=self.current_week - 2)
 
-        # Список виджетов для заполнения
+        # Заполняем каждое поле датой
         date_widgets = [
             self.dateMonday, self.dateTuesday, self.dateWednesday,
             self.dateThursday, self.dateFriday, self.dateSaturday, self.dateSunday
         ]
 
-        # Заполняем каждое поле датой соответствующего дня
         years = set()
         for i, widget in enumerate(date_widgets):
             day_date = start_of_week + timedelta(days=i)
-            formatted_date = day_date.strftime('%d.%m')  # Формат день.месяц
+            formatted_date = day_date.strftime('%d.%m')
             widget.setText(formatted_date)
             years.add(day_date.year)
 
-        # Обновляем отображение года
+        # Обновляем год
         year_display = f"{min(years)}-{max(years)}" if len(years) > 1 else str(min(years))
         self.labelYear.setText(f'Год: {year_display}')
 
-        # Обновляем состояние кнопок
-        self.update_buttons()
-
     def update_buttons(self):
         # Управление кнопками "назад" и "вперёд"
-        if self.current_week == -1:  # Если на предыдущей неделе
+        if self.current_week == 1:  # Если на предыдущей неделе
             self.LWButton.setEnabled(False)
             self.LWButton.setText('-')
         else:
             self.LWButton.setEnabled(True)
             self.LWButton.setText('<-')
 
-        if self.current_week == 1:  # Если на следующей неделе
+        if self.current_week == 3:  # Если на следующей неделе
             self.NWButton.setEnabled(False)
             self.NWButton.setText('-')
         else:
@@ -224,12 +251,12 @@ class WeeklyPlannerWindow(QMainWindow):
             self.NWButton.setText('->')
 
     def LastWeekop(self):
-        if self.current_week > -1:  # Проверяем, чтобы не выйти за пределы
+        if self.current_week > 1:  # Проверяем, чтобы не выйти за пределы
             self.current_week -= 1
             self.fill_dates()
 
     def NextWeekop(self):
-        if self.current_week < 1:  # Проверяем, чтобы не выйти за пределы
+        if self.current_week < 3:  # Проверяем, чтобы не выйти за пределы
             self.current_week += 1
             self.fill_dates()
 
@@ -240,67 +267,98 @@ class WeeklyPlannerWindow(QMainWindow):
 
 
     def openEvrydayTasks(self):
-        pass
+        self.Rz = RegZad(self)
+        self.Rz.show()
+        self.close()
 
     def shift_weeks(self):
         con = sqlite3.connect('UsersInfo.db')
         cur = con.cursor()
 
-        # Получить все дни для текущего пользователя
-        days = cur.execute("""SELECT id, DayDate, Events FROM days WHERE UserLogin = ? ORDER BY DayDate""",
-                           (self.UserName,)).fetchall()
+        days = cur.execute(
+            "SELECT id, DayNumber, Events FROM days WHERE UserLogin = ? ORDER BY DayNumber",
+            (self.UserLogin,)
+        ).fetchall()
 
         if len(days) == 21:
-            # Сдвиг дней
-            for i in range(7):  # Первая неделя становится второй
-                cur.execute("""UPDATE days SET DayDate = ?, Events = ? WHERE id = ?""",
-                            (days[i + 7][1], days[i + 7][2], days[i][0]))
+            print(f"Начальный сдвиг данных: {days}")
 
-            for i in range(7, 14):  # Вторая неделя становится третьей
-                cur.execute("""UPDATE days SET DayDate = ?, Events = ? WHERE id = ?""",
-                            (days[i + 7][1], days[i + 7][2], days[i][0]))
+            # Первая неделя -> Вторая неделя
+            for i in range(7):
+                cur.execute("UPDATE days SET Events = ? WHERE id = ?", (days[i + 7][2], days[i][0]))
 
-            # Третья неделя сбрасывается
-            start_date = days[13][1] + timedelta(days=1)
+            # Вторая неделя -> Третья неделя
+            for i in range(7, 14):
+                cur.execute("UPDATE days SET Events = ? WHERE id = ?", (days[i + 7][2], days[i][0]))
+
+            # Третья неделя очищается
             for i in range(14, 21):
-                new_date = start_date + timedelta(days=i - 14)
-                cur.execute("""UPDATE days SET DayDate = ?, Events = '' WHERE id = ?""", (new_date, days[i][0]))
+                cur.execute("UPDATE days SET Events = '' WHERE id = ?", (days[i][0],))
+
+            print(
+                f"После сдвига: {cur.execute('SELECT * FROM days WHERE UserLogin = ?', (self.UserLogin,)).fetchall()}")
 
             con.commit()
         con.close()
 
     def save_event_for_day(self, day_index):
-        # Получаем текст из соответствующего QTextEdit
+        week_start = (self.current_week - 1) * 7 + 1
+        day_number = week_start + day_index
         event_text = self.day_event_inputs[day_index].toPlainText()
 
-        # Сохраняем событие в базу данных
-        self.save_event(day_index, event_text)
+        con = sqlite3.connect('UsersInfo.db')
+        cur = con.cursor()
+        cur.execute(
+            "UPDATE days SET Events = ? WHERE UserLogin = ? AND DayNumber = ?",
+            (event_text, self.UserLogin, day_number)
+        )
+        con.commit()
+        con.close()
 
-        # Опционально: Логирование или уведомление в статус-баре
-        self.statusbar.showMessage(f"Событие для {self.day_names[day_index]} сохранено!", 2000)
-
-    def save_event(self, day_index, event_text):
-        # Индекс дня преобразуется в дату на основе текущей недели
-        con = sqlite3.connect('UserDaysInfo.db')
+    def save_event(self, day_number, event_text):
+        con = sqlite3.connect('UsersInfo.db')
         cur = con.cursor()
 
-        # Находим дату соответствующего дня
-        today = datetime.today()
-        weekday_index = today.weekday()
-        start_of_week = today - timedelta(days=weekday_index)
-        target_date = start_of_week + timedelta(days=day_index)
+        # Проверяем, существует ли день в базе данных
+        existing_day = cur.execute(
+            "SELECT DayNumber FROM days WHERE UserLogin = ? AND DayNumber = ?",
+            (self.UserLogin, day_number)
+        ).fetchone()
 
-        formatted_date = target_date.strftime('%Y-%m-%d')
-
-        # Обновляем событие в таблице UserDays
-        cur.execute("""
-            UPDATE UserDays
-            SET EventText = ?
-            WHERE UserLogin = ? AND Date = ?;
-        """, (event_text, self.UserLogin, formatted_date))
+        if existing_day:
+            # Обновляем событие
+            cur.execute(
+                "UPDATE days SET Events = ? WHERE UserLogin = ? AND DayNumber = ?",
+                (event_text, self.UserLogin, day_number)
+            )
+        else:
+            print(f"День с номером {day_number} не найден для пользователя {self.UserLogin}!")
 
         con.commit()
         con.close()
+
+    def update_everyday_tasks(self):
+        """Обновляет ежедневные задачи в текстовых полях."""
+        con = sqlite3.connect('UsersInfo.db')
+        cur = con.cursor()
+
+        # Загружаем ежедневные задачи
+        everyday_tasks = cur.execute(
+            "SELECT Task FROM everyday_tasks WHERE UserLogin = ?",
+            (self.UserLogin,)
+        ).fetchall()
+        everyday_tasks = [task[0] for task in everyday_tasks]  # Извлекаем текст задач
+
+        # Добавляем ежедневные задачи в начало задач каждого дня
+        for day_index, text_edit in enumerate(self.day_event_inputs):
+            current_text = text_edit.toPlainText().strip()  # Получаем текущий текст
+            updated_text = "\n".join(everyday_tasks)  # Ежедневные задачи
+            if current_text:  # Если есть задачи, добавляем их после ежедневных
+                updated_text += f"\n{current_text}"
+            text_edit.setPlainText(updated_text)
+
+        con.close()
+        QMessageBox.information(self, "Успех", "Ежедневные задачи обновлены!")
 
 
 class SettingsMenu(QMainWindow):
@@ -363,6 +421,144 @@ class SettingsMenu(QMainWindow):
         """Возвращаемся в WeeklyPlannerWindow."""
         self.weekly_planner_window.show()
         self.close()
+
+
+class RegZad(QMainWindow):
+    def __init__(self, weekly_planner_window):
+        super().__init__()
+        uic.loadUi('RegZad.ui', self)
+        self.setWindowTitle('Everyday tasks')
+        self.weekly_planner_window = weekly_planner_window
+
+        # Кнопки
+        self.BackButton.clicked.connect(self.go_back)
+        self.AddButton.clicked.connect(self.open_add_window)
+        self.DeleteButton.clicked.connect(self.open_delete_window)
+        self.RefreshButton.clicked.connect(self.refresh_tasks)
+
+        self.load_everyday_tasks()
+
+    def load_everyday_tasks(self):
+        """Загружает ежедневные задачи в список."""
+        con = sqlite3.connect('UsersInfo.db')
+        cur = con.cursor()
+
+        # Получаем список ежедневных задач
+        tasks = cur.execute(
+            "SELECT Events FROM days WHERE UserLogin = ? AND DayNumber = ?",
+            (self.weekly_planner_window.UserLogin, 1)
+        ).fetchone()
+        con.close()
+
+        self.EverydayTasksText.clear()  # Очищаем список перед добавлением новых данных
+
+        if tasks and tasks[0]:
+            for task in tasks[0].split('\n'):  # Разделяем задачи по строкам
+                self.EverydayTasksText.addItem(task)
+
+    def refresh_tasks(self):
+        # Получаем список задач из QListWidget
+        tasks = []
+        for i in range(self.EverydayTasksText.count()):
+            tasks.append(self.EverydayTasksText.item(i).text().strip())
+
+        con = sqlite3.connect('UsersInfo.db')
+        cur = con.cursor()
+
+        # Удаляем старые задачи и добавляем обновленные
+        cur.execute("DELETE FROM everyday_tasks WHERE UserLogin = ?", (self.weekly_planner_window.UserLogin,))
+        for task in tasks:
+            if task:
+                cur.execute("INSERT INTO everyday_tasks (UserLogin, Task) VALUES (?, ?)",
+                            (self.weekly_planner_window.UserLogin, task))
+        con.commit()
+        con.close()
+
+        QMessageBox.information(self, "Успех", "Задачи обновлены!")
+
+    def open_add_window(self):
+        self.Aw = AddWind(self)
+        self.Aw.show()
+
+    def open_delete_window(self):
+        self.Dw = DelWind(self)
+        self.Dw.show()
+
+    def go_back(self):
+        self.weekly_planner_window.show()
+        self.close()
+
+
+class AddWind(QMainWindow):
+    def __init__(self, reg_zad_window):
+        super().__init__()
+        uic.loadUi('AddWind.ui', self)
+        self.setWindowTitle('Add Tasks')
+        self.reg_zad_window = reg_zad_window
+
+        # Кнопки
+        self.AddTaskButton.clicked.connect(self.add_task)
+        self.BackButton.clicked.connect(self.go_back)
+
+    def add_task(self):
+        """Добавляет задачу в ежедневные задачи."""
+        new_task = self.NewTaskText.toPlainText().strip()  # Используем toPlainText() для получения текста
+        if not new_task:
+            QMessageBox.warning(self, "Ошибка", "Введите текст задачи!")
+            return
+
+        self.reg_zad_window.EverydayTasksText.addItem(new_task)  # Добавляем задачу в список
+        QMessageBox.information(self, "Успех", "Задача добавлена!")
+        self.go_back()
+
+    def go_back(self):
+        """Возвращается в окно ежедневных задач."""
+        self.close()
+        self.reg_zad_window.show()
+
+
+class DelWind(QMainWindow):
+    def __init__(self, reg_zad_window):
+        super().__init__()
+        uic.loadUi('DelWind.ui', self)
+        self.setWindowTitle('Delete Tasks')
+        self.reg_zad_window = reg_zad_window
+
+        # Кнопки
+        self.DeleteTaskButton.clicked.connect(self.delete_task)
+        self.BackButton.clicked.connect(self.go_back)
+
+        self.load_tasks()
+
+    def load_tasks(self):
+        """Загружает задачи в список для выбора."""
+        # Получаем все элементы из QListWidget
+        tasks = [self.reg_zad_window.EverydayTasksText.item(i).text() for i in
+                 range(self.reg_zad_window.EverydayTasksText.count())]
+
+        self.TasksListWidget.clear()  # Очищаем список задач перед загрузкой новых
+        self.TasksListWidget.addItems(tasks)  # Добавляем задачи в виджет списка
+
+    def delete_task(self):
+        """Удаляет выбранную задачу из QComboBox."""
+        current_index = self.TasksListWidget.currentIndex()  # Получаем индекс выбранного элемента
+        if current_index == -1:  # Проверяем, если ничего не выбрано
+            QMessageBox.warning(self, "Ошибка", "Выберите задачу для удаления!")
+            return
+
+        self.TasksListWidget.removeItem(current_index)  # Удаляем элемент из QComboBox
+
+        # Обновляем `EverydayTasksText` в родительском окне (если это `QListWidget`)
+        updated_tasks = [self.TasksListWidget.itemText(i) for i in range(self.TasksListWidget.count())]
+        self.reg_zad_window.EverydayTasksText.clear()  # Очищаем список
+        self.reg_zad_window.EverydayTasksText.addItems(updated_tasks)  # Перезаписываем список
+
+        QMessageBox.information(self, "Успех", "Задача удалена!")
+
+    def go_back(self):
+        """Возвращается в окно ежедневных задач."""
+        self.close()
+        self.reg_zad_window.show()
 
 
 class UspRegWindow(QDialog):
