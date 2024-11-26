@@ -30,11 +30,9 @@ class MainMenu(QMainWindow):
     def switch_theme(self):
         """Переключает тему и применяет её."""
         if self.current_theme == "light":
-            print(1)
             self.apply_theme("dark_theme.qss")
             self.current_theme = "dark"
         else:
-            print(1)
             self.apply_theme("light_theme.qss")
             self.current_theme = "light"
 
@@ -159,7 +157,6 @@ class WeeklyPlannerWindow(QMainWindow):
 
         self.update_display()  # Изначальное состояние
 
-
     def update_display(self):
         """Обновляет текст приветствия или выводит случайную цитату."""
         if self.is_greeting_mode:
@@ -188,12 +185,9 @@ class WeeklyPlannerWindow(QMainWindow):
                 (self.UserLogin, *day_numbers)
             ).fetchall()
         else:
-            days = []  # Если дни некорректны, возвращаем пустой список
-            print(f"Недопустимые номера дней: {day_numbers}")
-
+            days = []
         con.close()
 
-        print(f"Загружены данные для дней: {days}")
 
         # Устанавливаем задачи в соответствующие QTextEdit
         for day_index, text_edit in enumerate(self.day_event_inputs):
@@ -265,7 +259,6 @@ class WeeklyPlannerWindow(QMainWindow):
         self.Sm.show()
         self.close()
 
-
     def openEvrydayTasks(self):
         self.Rz = RegZad(self)
         self.Rz.show()
@@ -281,8 +274,6 @@ class WeeklyPlannerWindow(QMainWindow):
         ).fetchall()
 
         if len(days) == 21:
-            print(f"Начальный сдвиг данных: {days}")
-
             # Первая неделя -> Вторая неделя
             for i in range(7):
                 cur.execute("UPDATE days SET Events = ? WHERE id = ?", (days[i + 7][2], days[i][0]))
@@ -294,9 +285,6 @@ class WeeklyPlannerWindow(QMainWindow):
             # Третья неделя очищается
             for i in range(14, 21):
                 cur.execute("UPDATE days SET Events = '' WHERE id = ?", (days[i][0],))
-
-            print(
-                f"После сдвига: {cur.execute('SELECT * FROM days WHERE UserLogin = ?', (self.UserLogin,)).fetchall()}")
 
             con.commit()
         con.close()
