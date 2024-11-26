@@ -439,25 +439,23 @@ class RegZad(QMainWindow):
         self.load_everyday_tasks()
 
     def load_everyday_tasks(self):
-        """Загружает ежедневные задачи в список."""
         con = sqlite3.connect('UsersInfo.db')
         cur = con.cursor()
 
-        # Получаем список ежедневных задач
+        # Получаем список задач пользователя
         tasks = cur.execute(
-            "SELECT Events FROM days WHERE UserLogin = ? AND DayNumber = ?",
-            (self.weekly_planner_window.UserLogin, 1)
-        ).fetchone()
+            "SELECT Task FROM everyday_tasks WHERE UserLogin = ?",
+            (self.weekly_planner_window.UserLogin,)
+        ).fetchall()
         con.close()
 
         self.EverydayTasksText.clear()  # Очищаем список перед добавлением новых данных
 
-        if tasks and tasks[0]:
-            for task in tasks[0].split('\n'):  # Разделяем задачи по строкам
-                self.EverydayTasksText.addItem(task)
+        # Добавляем задачи в виджет
+        for task in tasks:
+            self.EverydayTasksText.addItem(task[0])
 
     def refresh_tasks(self):
-        # Получаем список задач из QListWidget
         tasks = []
         for i in range(self.EverydayTasksText.count()):
             tasks.append(self.EverydayTasksText.item(i).text().strip())
@@ -465,16 +463,35 @@ class RegZad(QMainWindow):
         con = sqlite3.connect('UsersInfo.db')
         cur = con.cursor()
 
-        # Удаляем старые задачи и добавляем обновленные
+        # Шаг 1: Обновляем таблицу `everyday_tasks`
         cur.execute("DELETE FROM everyday_tasks WHERE UserLogin = ?", (self.weekly_planner_window.UserLogin,))
         for task in tasks:
             if task:
                 cur.execute("INSERT INTO everyday_tasks (UserLogin, Task) VALUES (?, ?)",
                             (self.weekly_planner_window.UserLogin, task))
+
+        everyday_tasks_str = "\n".join(tasks)
+
+        for day in range(1, 22):
+            current_tasks = cur.execute(
+                "SELECT Events FROM days WHERE UserLogin = ? AND DayNumber = ?",
+                (self.weekly_planner_window.UserLogin, day)
+            ).fetchone()
+
+            if current_tasks and current_tasks[0]:
+                updated_tasks = everyday_tasks_str + "\n" + current_tasks[0]
+            else:
+                updated_tasks = everyday_tasks_str
+
+            cur.execute(
+                "UPDATE days SET Events = ? WHERE UserLogin = ? AND DayNumber = ?",
+                (updated_tasks.strip(), self.weekly_planner_window.UserLogin, day)
+            )
+
         con.commit()
         con.close()
 
-        QMessageBox.information(self, "Успех", "Задачи обновлены!")
+        QMessageBox.information(self, "Успех", "Ежедневные задачи обновлены и добавлены первыми!")
 
     def open_add_window(self):
         self.Aw = AddWind(self)
@@ -501,13 +518,20 @@ class AddWind(QMainWindow):
         self.BackButton.clicked.connect(self.go_back)
 
     def add_task(self):
-        """Добавляет задачу в ежедневные задачи."""
-        new_task = self.NewTaskText.toPlainText().strip()  # Используем toPlainText() для получения текста
+        new_task = self.NewTaskText.toPlainText().strip()
         if not new_task:
             QMessageBox.warning(self, "Ошибка", "Введите текст задачи!")
             return
 
-        self.reg_zad_window.EverydayTasksText.addItem(new_task)  # Добавляем задачу в список
+        con = sqlite3.connect('UsersInfo.db')
+        cur = con.cursor()
+        cur.execute("INSERT INTO everyday_tasks (UserLogin, Task) VALUES (?, ?)",
+                    (self.reg_zad_window.weekly_planner_window.UserLogin, new_task))
+        con.commit()
+        con.close()
+
+        self.reg_zad_window.EverydayTasksText.addItem(new_task)
+
         QMessageBox.information(self, "Успех", "Задача добавлена!")
         self.go_back()
 
@@ -532,7 +556,6 @@ class DelWind(QMainWindow):
 
     def load_tasks(self):
         """Загружает задачи в список для выбора."""
-        # Получаем все элементы из QListWidget
         tasks = [self.reg_zad_window.EverydayTasksText.item(i).text() for i in
                  range(self.reg_zad_window.EverydayTasksText.count())]
 
@@ -540,18 +563,29 @@ class DelWind(QMainWindow):
         self.TasksListWidget.addItems(tasks)  # Добавляем задачи в виджет списка
 
     def delete_task(self):
-        """Удаляет выбранную задачу из QComboBox."""
         current_index = self.TasksListWidget.currentIndex()  # Получаем индекс выбранного элемента
         if current_index == -1:  # Проверяем, если ничего не выбрано
             QMessageBox.warning(self, "Ошибка", "Выберите задачу для удаления!")
             return
 
-        self.TasksListWidget.removeItem(current_index)  # Удаляем элемент из QComboBox
+        # Получаем текст задачи
+        task_text = self.TasksListWidget.currentText()
 
-        # Обновляем `EverydayTasksText` в родительском окне (если это `QListWidget`)
-        updated_tasks = [self.TasksListWidget.itemText(i) for i in range(self.TasksListWidget.count())]
-        self.reg_zad_window.EverydayTasksText.clear()  # Очищаем список
-        self.reg_zad_window.EverydayTasksText.addItems(updated_tasks)  # Перезаписываем список
+        # Удаляем задачу из базы данных
+        con = sqlite3.connect('UsersInfo.db')
+        cur = con.cursor()
+        cur.execute("DELETE FROM everyday_tasks WHERE UserLogin = ? AND Task = ?",
+                    (self.reg_zad_window.weekly_planner_window.UserLogin, task_text))
+        con.commit()
+        con.close()
+
+        self.TasksListWidget.removeItem(current_index)
+
+        # Также удаляем из `EverydayTasksText` в основном окне
+        for i in range(self.reg_zad_window.EverydayTasksText.count()):
+            if self.reg_zad_window.EverydayTasksText.item(i).text() == task_text:
+                self.reg_zad_window.EverydayTasksText.takeItem(i)
+                break
 
         QMessageBox.information(self, "Успех", "Задача удалена!")
 
@@ -564,7 +598,6 @@ class DelWind(QMainWindow):
 class UspRegWindow(QDialog):
     def __init__(self):
         super().__init__()
-        # Загружаем дизайн
         uic.loadUi('UspReg.ui', self)
         self.setWindowTitle('Successful registration')
         self.pushButton.clicked.connect(self.close)
