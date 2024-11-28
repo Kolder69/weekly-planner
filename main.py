@@ -13,7 +13,7 @@ class MainMenu(QMainWindow):
     def __init__(self):
         super().__init__()
         # Загрузка дизайна
-        self.current_theme = "light"  # По умолчанию светлая тема
+        self.current_theme = "light"
         self.RegWindow = RegWindow(self)
         self.UspRegWindow = UspRegWindow()
         uic.loadUi('menu.ui', self)
@@ -134,11 +134,9 @@ class WeeklyPlannerWindow(QMainWindow):
         for day_index, text_edit in enumerate(self.day_event_inputs):
             text_edit.textChanged.connect(lambda idx=day_index: self.save_event_for_day(idx))
 
-        # Инициализация переменных для управления неделями
         self.current_week = 2  # 2 - текущая неделя, 1 - предыдущая, 3 - следующая
         self.total_weeks = 3  # Общее количество доступных недель
 
-        # Заполняем начальные данные
         self.fill_dates()
         # Режим приветствия/цитат
         self.is_greeting_mode = True  # True: приветствие, False: цитаты
@@ -155,14 +153,14 @@ class WeeklyPlannerWindow(QMainWindow):
             "В моей руке граната без чеки - на подержи"
         ]
 
-        self.update_display()  # Изначальное состояние
+        self.update_display()
 
     def update_display(self):
         """Обновляет текст приветствия или выводит случайную цитату."""
         if self.is_greeting_mode:
-            self.labelWelcome.setText(f"Приветствуем вас, {self.UserName}!")  # Приветствие
+            self.labelWelcome.setText(f"Приветствуем вас, {self.UserName}!")
         else:
-            self.labelWelcome.setText(random.choice(self.quotes))  # Случайная цитата
+            self.labelWelcome.setText(random.choice(self.quotes))
 
     def toggle_greeting_mode(self):
         """Переключает режим между приветствием и цитатами."""
@@ -173,13 +171,12 @@ class WeeklyPlannerWindow(QMainWindow):
         week_start = (self.current_week - 1) * 7 + 1  # Сдвигаем недели на 1 для текущей
         day_numbers = list(range(week_start, week_start + 7))
 
-        # Проверка допустимости номеров дней
         day_numbers = [num for num in day_numbers if 1 <= num <= 21]
 
         con = sqlite3.connect('UsersInfo.db')
         cur = con.cursor()
 
-        if len(day_numbers) == 7:  # Только если у нас есть полный набор дней
+        if len(day_numbers) == 7:
             days = cur.execute(
                 "SELECT DayNumber, Events FROM days WHERE UserLogin = ? AND DayNumber IN (?, ?, ?, ?, ?, ?, ?)",
                 (self.UserLogin, *day_numbers)
@@ -189,7 +186,6 @@ class WeeklyPlannerWindow(QMainWindow):
         con.close()
 
 
-        # Устанавливаем задачи в соответствующие QTextEdit
         for day_index, text_edit in enumerate(self.day_event_inputs):
             if day_index < len(day_numbers):  # Проверяем, что индекс в пределах допустимого
                 day_number = day_numbers[day_index]

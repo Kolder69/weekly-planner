@@ -75,9 +75,9 @@
     <property name="geometry">
      <rect>
       <x>0</x>
-      <y>39</y>
+      <y>100</y>
       <width>800</width>
-      <height>111</height>
+      <height>3</height>
      </rect>
     </property>
     <property name="minimumSize">
